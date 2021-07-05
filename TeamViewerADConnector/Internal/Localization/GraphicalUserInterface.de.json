@@ -11,8 +11,8 @@
     "Install": "Installieren",
     "InstallError": "Geplante Aufgabe konnte nicht eingerichtet werden!",
     "IntervalUnit": "Stunden",
-    "LabelAccountType": "Kontotyp:",
     "LabelADGroups": "AD Gruppen:",
+    "LabelAccountType": "Kontotyp:",
     "LabelApiToken": "API Token:",
     "LabelCustomerId": "Customer ID:",
     "LabelDefaultPassword": "Init. Passwort:",
@@ -40,9 +40,11 @@
     "SyncError": "Synchronisierung der Benutzer fehlgeschlagen!",
     "SyncGetActiveDirectoryGroupMembers": "Mitglieder der Active Directory Gruppen werden abgerufen",
     "SyncGetTeamViewerConditionalAccess": "TeamViewer Conditional Access Gruppen werden abgerufen",
+    "SyncGetTeamViewerUserGroups": "TeamViewer User Gruppen werden abgerufen",
     "SyncGetTeamViewerUsers": "Benutzer der TeamViewer Company werden abgerufen",
+    "SyncUserGroups": "Synchronisiere TeamViewer User Gruppen",
     "TabHeaderAccounts": "TeamViewer Konten",
-    "TabHeaderConditionalAccess": "Conditional Access",
+    "TabHeaderGroups": "Gruppen",
     "TabHeaderSynchronization": "Synchronisierung",
     "TestRun": "Testlauf",
     "TestToken": "Token prüfen",
@@ -51,6 +53,7 @@
     "Title": "TeamViewer AD Connector",
     "Uninstall": "Entfernen",
     "UninstallError": "Geplante Aufgabe konnte nicht entfernt werden!",
+    "UseSecondaryEmails": "Sekundäre E-Mail-Adressen ebenfalls berücksichtigen",
     "UserLanguage_bg": "Bulgarisch (bg)",
     "UserLanguage_cs": "Tschechisch (cs)",
     "UserLanguage_da": "Dänisch (da)",
@@ -81,6 +84,5 @@
     "UserLanguage_uk": "Ukrainisch (uk)",
     "UserLanguage_vi": "Vietnamesisch (vi)",
     "UserLanguage_zh_CN": "Vereinfachtes Chinesisch (zh_CN)",
-    "UserLanguage_zh_TW": "Traditionelles Chinesisch (zh_TW)",
-    "UseSecondaryEmails": "Sekundäre E-Mail-Adressen ebenfalls berücksichtigen"
+    "UserLanguage_zh_TW": "Traditionelles Chinesisch (zh_TW)"
 }

@@ -375,7 +375,7 @@ Describe 'Remove-TeamViewerConditionalAccessGroupUser' {
         $lastMockParams = @{ }
         Mock -CommandName Invoke-WebRequest -MockWith {
             $lastMockParams.Body = $Body
-            return @{Content = ''}
+            return @{Content = '' }
         }
     }
 
@@ -402,5 +402,177 @@ Describe 'Remove-TeamViewerConditionalAccessGroupUser' {
         $payload.members | Should -HaveCount 2
         $payload.members | Should -Contain 'u1234'
         $payload.members | Should -Contain 'u5678'
+    }
+}
+
+Describe 'Get-TeamViewerUserGroup' {
+    It 'Should call the API usergroups endpoint' {
+        Mock -CommandName Invoke-RestMethod -MockWith { }
+        Get-TeamViewerUserGroup 'TestAccessToken'
+        Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -ParameterFilter {
+            $Uri -And [System.Uri]$Uri.PathAndQuery -eq '/api/v1/usergroups' -And
+            $Method -And $Method -eq 'Get'
+        }
+    }
+
+    It 'Should set the authorization header' {
+        Mock -CommandName Invoke-RestMethod -MockWith { }
+        Get-TeamViewerUserGroup 'TestAccessToken'
+        Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -ParameterFilter {
+            $Headers -And $Headers.ContainsKey('authorization') -And $Headers.authorization -eq 'Bearer TestAccessToken'
+        }
+    }
+
+    It 'Should do paging using the given pagination token' {
+        Mock -CommandName Invoke-RestMethod -MockWith { @{
+                resources           = @(
+                    @{ id = 112233; name = 'User Group 1' },
+                    @{ id = 445566; name = 'User Group 2' }
+                )
+                nextPaginationToken = 'token1'
+            } }
+        Mock -CommandName Invoke-RestMethod -MockWith { @{
+                resources = @(
+                    @{ id = 778899; name = 'User Group 3' }
+                )
+            } } -ParameterFilter { $Body.paginationToken -Eq 'token1' }
+        $result = @(Get-TeamViewerUserGroup 'TestAccessToken')
+        $result | Should -HaveCount 3
+        Assert-MockCalled Invoke-RestMethod -Times 2 -Scope It
+    }
+}
+
+Describe 'Add-TeamViewerUserGroup' {
+    BeforeAll {
+        $testGroup = @{ 'id' = 11223344; 'groupName' = 'test user group name' }
+        $lastMockParams = @{ }
+        Mock -CommandName Invoke-RestMethod -MockWith {
+            $lastMockParams.Body = $Body
+            return $testGroup
+        }
+    }
+
+    It 'Should call the API usergroups endpoint' {
+        Add-TeamViewerUserGroup 'TestAccessToken' 'test user group name'
+        Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -ParameterFilter {
+            $Uri -And [System.Uri]$Uri.PathAndQuery -eq '/api/v1/usergroups' -And
+            $Method -And $Method -eq 'Post'
+        }
+    }
+
+    It 'Should set the authorization header' {
+        Add-TeamViewerUserGroup 'TestAccessToken' 'test user group name'
+        Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -ParameterFilter {
+            $Headers -And $Headers.ContainsKey('authorization') -And $Headers.authorization -eq 'Bearer TestAccessToken'
+        }
+    }
+
+    It 'Should encode the payload using UTF-8' {
+        Add-TeamViewerUserGroup 'TestAccessToken' 'Test Group Müller'
+        Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -ParameterFilter { $Body }
+        $payload = [System.Text.Encoding]::UTF8.GetString($lastMockParams.Body) | ConvertFrom-Json
+        $payload.name | Should -Be 'Test Group Müller'
+    }
+}
+
+Describe 'Get-TeamViewerUserGroupMember' {
+    It 'Should call the API usergroups endpoint' {
+        Mock -CommandName Invoke-RestMethod -MockWith { }
+        Get-TeamViewerUserGroupMember 'TestAccessToken' 112233
+        Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -ParameterFilter {
+            $Uri -And [System.Uri]$Uri.PathAndQuery -eq '/api/v1/usergroups/112233/members' -And
+            $Method -And $Method -eq 'Get'
+        }
+    }
+
+    It 'Should set the authorization header' {
+        Mock -CommandName Invoke-RestMethod -MockWith { }
+        Get-TeamViewerUserGroupMember 'TestAccessToken' 112233
+        Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -ParameterFilter {
+            $Headers -And $Headers.ContainsKey('authorization') -And $Headers.authorization -eq 'Bearer TestAccessToken'
+        }
+    }
+
+    It 'Should do paging using the given pagination token' {
+        Mock -CommandName Invoke-RestMethod -MockWith { @{
+                resources           = @(
+                    @{ accountId = 123; name = 'User 1' },
+                    @{ accountId = 456; name = 'User 2' }
+                )
+                nextPaginationToken = 'token1'
+            } }
+        Mock -CommandName Invoke-RestMethod -MockWith { @{
+                resources = @(
+                    @{ accountId = 789; name = 'User 3' }
+                )
+            } } -ParameterFilter { $Body.paginationToken -Eq 'token1' }
+        $result = @(Get-TeamViewerUserGroupMember 'TestAccessToken' 112233)
+        $result | Should -HaveCount 3
+        Assert-MockCalled Invoke-RestMethod -Times 2 -Scope It
+    }
+}
+
+Describe 'Add-TeamViewerUserGroupMember' {
+    BeforeAll {
+        $lastMockParams = @{ }
+        Mock -CommandName Invoke-RestMethod -MockWith {
+            $lastMockParams.Body = $Body
+        }
+    }
+
+    It 'Should call the API usergroups endpoint' {
+        Add-TeamViewerUserGroupMember 'TestAccessToken' 112233 @(456)
+        Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -ParameterFilter {
+            $Uri -And [System.Uri]$Uri.PathAndQuery -eq '/api/v1/usergroups/112233/members' -And
+            $Method -And $Method -eq 'Post'
+        }
+    }
+
+    It 'Should set the authorization header' {
+        Add-TeamViewerUserGroupMember 'TestAccessToken' 112233 @(456)
+        Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -ParameterFilter {
+            $Headers -And $Headers.ContainsKey('authorization') -And $Headers.authorization -eq 'Bearer TestAccessToken'
+        }
+    }
+
+    It 'Should encode the payload using UTF-8' {
+        Add-TeamViewerUserGroupMember 'TestAccessToken' 112233 @(456, 789)
+        Assert-MockCalled Invoke-RestMethod -Times 1 -Scope It -ParameterFilter { $Body }
+        $payload = [System.Text.Encoding]::UTF8.GetString($lastMockParams.Body) | ConvertFrom-Json
+        $payload | Should -Contain 456
+        $payload | Should -Contain 789
+    }
+}
+
+Describe 'Remove-TeamViewerUserGroupMember' {
+    BeforeAll {
+        $lastMockParams = @{ }
+        Mock -CommandName Invoke-WebRequest -MockWith {
+            $lastMockParams.Body = $Body
+            return @{ Content = '' }
+        }
+    }
+
+    It 'Should call the API usergroups endpoint' {
+        Remove-TeamViewerUserGroupMember 'TestAccessToken' 112233 @(456)
+        Assert-MockCalled Invoke-WebRequest -Times 1 -Scope It -ParameterFilter {
+            $Uri -And [System.Uri]$Uri.PathAndQuery -eq '/api/v1/usergroups/112233/members' -And
+            $Method -And $Method -eq 'Delete'
+        }
+    }
+
+    It 'Should set the authorization header' {
+        Remove-TeamViewerUserGroupMember 'TestAccessToken' 112233 @(456)
+        Assert-MockCalled Invoke-WebRequest -Times 1 -Scope It -ParameterFilter {
+            $Headers -And $Headers.ContainsKey('authorization') -And $Headers.authorization -eq 'Bearer TestAccessToken'
+        }
+    }
+
+    It 'Should encode the payload using UTF-8' {
+        Remove-TeamViewerUserGroupMember 'TestAccessToken' 112233 @(456, 789)
+        Assert-MockCalled Invoke-WebRequest -Times 1 -Scope It -ParameterFilter { $Body }
+        $payload = [System.Text.Encoding]::UTF8.GetString($lastMockParams.Body) | ConvertFrom-Json
+        $payload | Should -Contain 456
+        $payload | Should -Contain 789
     }
 }

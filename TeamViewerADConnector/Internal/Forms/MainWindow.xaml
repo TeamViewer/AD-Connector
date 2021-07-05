@@ -3,9 +3,9 @@
 Copyright (c) 2018-2021 TeamViewer Germany GmbH
 See file LICENSE
 -->
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" 
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" 
-    xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:scm="clr-namespace:System.ComponentModel;assembly=WindowsBase" Width="620" MinWidth="620" MinHeight="770" WindowStartupLocation="CenterScreen" SizeToContent="Height">
     <Window.Title>
         <MultiBinding StringFormat="{}{0} {1}">
@@ -140,13 +140,14 @@ See file LICENSE
                             </StackPanel>
                         </Grid>
                     </TabItem>
-                    <TabItem Header="{Binding L.TabHeaderConditionalAccess}">
+                    <TabItem Header="{Binding L.TabHeaderGroups}">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition SharedSizeGroup="ConfigurationTabHeight" />
                             </Grid.RowDefinitions>
                             <StackPanel Margin="10">
                                 <CheckBox VerticalAlignment="Top" Margin="5" Content="{Binding L.EnableConditionalAccessSync}" IsChecked="{Binding ConfigurationData.EnableConditionalAccessSync}" />
+                                <CheckBox VerticalAlignment="Top" Margin="5" Content="{Binding L.EnableUserGroupsSync}" IsChecked="{Binding ConfigurationData.EnableUserGroupsSync}" />
                             </StackPanel>
                         </Grid>
                     </TabItem>

@@ -17,6 +17,7 @@ function Import-Configuration($filename) {
         RecursiveGroups             = $true
         UseSecondaryEmails          = $true
         EnableConditionalAccessSync = $false
+        EnableUserGroupsSync        = $false
     }
     if (Test-Path $filename) {
         $configuration = (Get-Content $filename | Out-String | ConvertFrom-Json)

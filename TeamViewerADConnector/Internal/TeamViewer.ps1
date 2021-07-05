@@ -132,3 +132,56 @@ function Remove-TeamViewerConditionalAccessGroupUser {
             -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json)))
     }
 }
+
+function Get-TeamViewerUserGroup($accessToken) {
+    $paginationToken = $null
+    do {
+        $payload = @{}
+        if ($paginationToken) {
+            $payload.paginationToken = $paginationToken
+        }
+        $response = Invoke-TeamViewerRestMethod -Uri "$tvApiBaseUrl/api/$tvApiVersion/usergroups" `
+            -Method Get -Headers @{authorization = "Bearer $accessToken" } -Body $payload
+        Write-Output $response.resources
+        $paginationToken = $response.nextPaginationToken
+    } while ($paginationToken)
+}
+
+function Add-TeamViewerUserGroup($accessToken, $groupName) {
+    $payload = @{ name = $groupName }
+    return Invoke-TeamViewerRestMethod -Uri "$tvApiBaseUrl/api/$tvApiVersion/usergroups" `
+        -Method Post -Headers @{authorization = "Bearer $accessToken" } `
+        -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes(($payload | ConvertTo-Json)))
+}
+
+function Get-TeamViewerUserGroupMember($accessToken, $groupID) {
+    $paginationToken = $null
+    do {
+        $payload = @{}
+        if ($paginationToken) {
+            $payload.paginationToken = $paginationToken
+        }
+        $response = Invoke-TeamViewerRestMethod -Uri "$tvApiBaseUrl/api/$tvApiVersion/usergroups/$groupID/members" `
+            -Method Get -Headers @{authorization = "Bearer $accessToken" } -Body $payload
+        Write-Output $response.resources
+        $paginationToken = $response.nextPaginationToken
+    } while ($paginationToken)
+}
+
+function Add-TeamViewerUserGroupMember($accessToken, $groupID, $accountIDs) {
+    return Invoke-TeamViewerRestMethod -Uri "$tvApiBaseUrl/api/$tvApiVersion/usergroups/$groupID/members" `
+        -Method Post -Headers @{authorization = "Bearer $accessToken" } `
+        -ContentType "application/json; charset=utf-8" `
+        -Body ([System.Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject @($accountIDs))))
+}
+
+function Remove-TeamViewerUserGroupMember {
+    [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'None')]
+    param($accessToken, $groupID, $accountIDs)
+    if ($PSCmdlet.ShouldProcess($accountIDs)) {
+        return Invoke-TeamViewerRestMethod -Uri "$tvApiBaseUrl/api/$tvApiVersion/usergroups/$groupID/members" `
+            -Method Delete -Headers @{authorization = "Bearer $accessToken" } `
+            -ContentType "application/json; charset=utf-8" `
+            -Body ([System.Text.Encoding]::UTF8.GetBytes((ConvertTo-Json -InputObject @($accountIDs))))
+    }
+}

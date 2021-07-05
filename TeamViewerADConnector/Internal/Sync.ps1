@@ -48,10 +48,23 @@ function Format-SyncUpdateUserChangeset {
 }
 
 function Split-Bulk {
-	param([int]$Size)
-	Begin { $bulk = New-Object System.Collections.ArrayList($Size) }
-	Process { $bulk.Add($_) | Out-Null; if ($bulk.Count -ge $Size) { ,$bulk.Clone(); $bulk.Clear() } }
-	End { if ($bulk.Count -gt 0) { ,$bulk } }
+    param([int]$Size)
+    Begin { $bulk = New-Object System.Collections.ArrayList($Size) }
+    Process { $bulk.Add($_) | Out-Null; if ($bulk.Count -ge $Size) { , $bulk.Clone(); $bulk.Clear() } }
+    End { if ($bulk.Count -gt 0) { , $bulk } }
+}
+
+function Resolve-TeamViewerAccount {
+    param($syncContext, $configuration, [Parameter(ValueFromPipeline)] $userAd)
+    Process {
+        $userTv = $syncContext.UsersTeamViewerByEmail[$userAd.email]
+        if (!$userTv -and $configuration.UseSecondaryEmails) {
+            $userTv = $userAd.SecondaryEmails | `
+                ForEach-Object { $syncContext.UsersTeamViewerByEmail[$_] } | `
+                Select-Object -First 1
+        }
+        Write-Output $userTv
+    }
 }
 
 function Invoke-SyncPrework($syncContext, $configuration, $progressHandler) {
@@ -107,12 +120,31 @@ function Invoke-SyncPrework($syncContext, $configuration, $progressHandler) {
         }
     }
 
+    if ($configuration.EnableUserGroupsSync) {
+        # Fetch all available user groups
+        Write-SyncProgress -Handler $progressHandler -PercentComplete 20 'GetTeamViewerUserGroups'
+        Write-SyncLog "Fetching list of TeamViewer user groups."
+        $userGroups = @(Get-TeamViewerUserGroup $configuration.ApiToken)
+        Write-SyncLog "Retrieved $($userGroups.Count) TeamViewer user groups."
+
+        # Fetch user group members
+        $userGroupMembersByGroup = @{}
+        foreach ($userGroup in $userGroups) {
+            Write-SyncLog "Fetching members of TeamViewer user group '$($userGroup.name)'"
+            $userGroupMembers = @(Get-TeamViewerUserGroupMember $configuration.ApiToken $userGroup.id)
+            Write-SyncLog "Retrieved $($userGroupMembers.Count) members of TeamViewer user group '$($userGroup.name)'"
+            $userGroupMembersByGroup[$userGroup.id] = $userGroupMembers
+        }
+    }
+
     $syncContext.UsersActiveDirectory = $usersAD
     $syncContext.UsersActiveDirectoryByEmail = $usersADByEmail
     $syncContext.UsersActiveDirectoryByGroup = $usersADByGroup
     $syncContext.UsersTeamViewerByEmail = $usersTVByEmail
     $syncContext.GroupsConditionalAccess = $groupsCA
     $syncContext.UsersConditionalAccessByGroup = $usersCAByGroup
+    $syncContext.UserGroups = $userGroups
+    $syncContext.UserGroupMembersByGroup = $userGroupMembersByGroup
 }
 
 function Invoke-SyncUser($syncContext, $configuration, $progressHandler) {
@@ -127,10 +159,7 @@ function Invoke-SyncUser($syncContext, $configuration, $progressHandler) {
     # Create/Update users in the TeamViewer company
     Write-SyncProgress -Handler $progressHandler -PercentComplete 50 -CurrentOperation 'CreateUpdateUser'
     ForEach ($userAd in $syncContext.UsersActiveDirectory) {
-        $userTv = $syncContext.UsersTeamViewerByEmail[$userAd.email]
-        if (!$userTv -and $configuration.UseSecondaryEmails) {
-            $userTv = $userAd.SecondaryEmails | ForEach-Object { $syncContext.UsersTeamViewerByEmail[$_] } | Select-Object -First 1
-        }
+        $userTv = $userAd | Resolve-TeamViewerAccount $syncContext $configuration
         if ($userTv -and $userTv.active -and $userTv.name -eq $userAd.name) {
             Write-SyncLog "No changes for user $($userAd.email). Skipping."
             $statistics.NotChanged++
@@ -238,7 +267,7 @@ function Invoke-SyncConditionalAccess($syncContext, $configuration, $progressHan
     $statistics = @{ CreatedGroups = 0; AddedMembers = 0; RemovedMembers = 0; NotChanged = 0; Failed = 0; }
     $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    Write-SyncProgress -Handler $progressHandler -PercentComplete 80 -CurrentOperation 'ConditionalAccess'
+    Write-SyncProgress -Handler $progressHandler -PercentComplete 70 -CurrentOperation 'ConditionalAccess'
     ForEach ($adGroup in $configuration.ActiveDirectoryGroups) {
         $adGroupName = ($adGroup | Select-ActiveDirectoryCommonName)
         $caGroup = ($syncContext.GroupsConditionalAccess | Where-Object { $_.name -eq $adGroupName } | Select-Object -First 1)
@@ -256,7 +285,8 @@ function Invoke-SyncConditionalAccess($syncContext, $configuration, $progressHan
                     $statistics.Failed++
                     Continue;
                 }
-            } else {
+            }
+            else {
                 $caGroup = @{ id = "$(New-Guid)"; name = $adGroupName; }
                 $statistics.CreatedGroups++
             }
@@ -266,14 +296,7 @@ function Invoke-SyncConditionalAccess($syncContext, $configuration, $progressHan
         $usersCa = @($syncContext.UsersConditionalAccessByGroup[$caGroup.id]) | Where-Object { $_ }
 
         # Map the AD group users to a TeamViewer users
-        $usersTv = @($usersAd | ForEach-Object {
-            $userAd = $_
-            $userTv = $syncContext.UsersTeamViewerByEmail[$userAd.email]
-            if (!$userTv -and $configuration.UseSecondaryEmails) {
-                $userTv = $userAd.SecondaryEmails | ForEach-Object { $syncContext.UsersTeamViewerByEmail[$_] } | Select-Object -First 1
-            }
-            return $userTv
-        }) | Where-Object { $_ }
+        $usersTv = @($usersAd | Resolve-TeamViewerAccount $syncContext $configuration | Where-Object { $_ })
 
         # Add missing members to the conditional access group
         $usersToAdd = @()
@@ -290,19 +313,17 @@ function Invoke-SyncConditionalAccess($syncContext, $configuration, $progressHan
         }
         Write-SyncLog "Adding $($usersToAdd.Count) users to conditional access group '$($caGroup.name)'"
         if (!$configuration.TestRun -And $usersToAdd.Count -Gt 0) {
-            $usersToAdd | `
-                Split-Bulk -Size 50 | `
-                ForEach-Object {
-                    $currentUsersToAdd = $_
-                    try {
-                        (Add-TeamViewerConditionalAccessGroupUser $configuration.ApiToken $caGroup.id $currentUsersToAdd) | Out-Null
-                        $statistics.AddedMembers += $currentUsersToAdd.Count
-                    }
-                    catch {
-                        Write-SyncLog "Failed to add members to conditional access group '$($caGroup.name)': $_"
-                        $statistics.Failed += $currentUsersToAdd.Count
-                    }
+            $usersToAdd | Split-Bulk -Size 50 | ForEach-Object {
+                $currentUsersToAdd = $_
+                try {
+                    (Add-TeamViewerConditionalAccessGroupUser $configuration.ApiToken $caGroup.id $currentUsersToAdd) | Out-Null
+                    $statistics.AddedMembers += $currentUsersToAdd.Count
                 }
+                catch {
+                    Write-SyncLog "Failed to add members to conditional access group '$($caGroup.name)': $_"
+                    $statistics.Failed += $currentUsersToAdd.Count
+                }
+            }
         }
         else { $statistics.AddedMembers += $usersToAdd.Count }
 
@@ -317,19 +338,17 @@ function Invoke-SyncConditionalAccess($syncContext, $configuration, $progressHan
         }
         Write-SyncLog "Removing $($usersToRemove.Count) users from conditional access group '$($caGroup.name)'"
         if (!$configuration.TestRun -And $usersToRemove.Count -Gt 0) {
-            $usersToRemove | `
-                Split-Bulk -Size 50 | `
-                ForEach-Object {
-                    $currentUsersToRemove = $_
-                    try {
-                        (Remove-TeamViewerConditionalAccessGroupUser $configuration.ApiToken $caGroup.id $currentUsersToRemove) | Out-Null
-                        $statistics.RemovedMembers += $currentUsersToRemove.Count
-                    }
-                    catch {
-                        Write-SyncLog "Failed to remove members from conditional access group '$($caGroup.name)': $_"
-                        $statistics.Failed += $currentUsersToRemove.Count
-                    }
+            $usersToRemove | Split-Bulk -Size 50 | ForEach-Object {
+                $currentUsersToRemove = $_
+                try {
+                    (Remove-TeamViewerConditionalAccessGroupUser $configuration.ApiToken $caGroup.id $currentUsersToRemove) | Out-Null
+                    $statistics.RemovedMembers += $currentUsersToRemove.Count
                 }
+                catch {
+                    Write-SyncLog "Failed to remove members from conditional access group '$($caGroup.name)': $_"
+                    $statistics.Failed += $currentUsersToRemove.Count
+                }
+            }
         }
         else { $statistics.RemovedMembers += $usersToRemove.Count }
     }
@@ -340,6 +359,112 @@ function Invoke-SyncConditionalAccess($syncContext, $configuration, $progressHan
     # Return some statistics
     Write-Output @{
         Activity   = 'SyncConditionalAccess'
+        Statistics = $statistics
+        Duration   = $stopwatch.Elapsed
+    }
+}
+
+function Invoke-SyncUserGroups($syncContext, $configuration, $progressHandler) {
+    Write-SyncLog "Starting user groups synchronization"
+    if ($configuration.TestRun) {
+        Write-SyncLog "Mode 'Test Run' is active. Information of your TeamViewer user groups will not be modified!"
+    }
+
+    $statistics = @{ CreatedGroups = 0; AddedMembers = 0; RemovedMembers = 0; NotChanged = 0; Failed = 0; }
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    Write-SyncProgress -Handler $progressHandler -PercentComplete 80 -CurrentOperation 'UserGroups'
+
+    foreach ($adGroup in $configuration.ActiveDirectoryGroups) {
+        $adGroupName = ($adGroup | Select-ActiveDirectoryCommonName)
+        $userGroup = ($syncContext.UserGroups | Where-Object { $_.name -eq $adGroupName } | Select-Object -First 1)
+
+        # Try to create the user group, if no group with such name exists yet
+        if (!$userGroup) {
+            Write-SyncLog "Creating user group '$adGroupName'"
+            if (!$configuration.TestRun) {
+                try {
+                    $userGroup = (Add-TeamViewerUserGroup $configuration.ApiToken $adGroupName)
+                    $statistics.CreatedGroups++
+                }
+                catch {
+                    Write-SyncLog "Failed to create user group '$adGroupName': $_"
+                    $statistics.Failed++
+                    continue
+                }
+            }
+            else {
+                $userGroup = @{ id = (Get-Random); name = $adGroupName; }
+                $statistics.CreatedGroups++
+            }
+        }
+
+        $usersAd = @($syncContext.UsersActiveDirectoryByGroup[$adGroup]) | Where-Object { $_ }
+        $userGroupMembers = @($syncContext.UserGroupMembersByGroup[$userGroup.id]) | Where-Object { $_ }
+
+        # Map the AD group users to a TeamViewer users
+        $usersTv = @($usersAd | Resolve-TeamViewerAccount $syncContext $configuration | Where-Object { $_ })
+
+        # Add missing members to the user group
+        $membersToAdd = @()
+        foreach ($userTv in $usersTv) {
+            $userGroupMember = ($userGroupMembers | Where-Object { $_.accountId -Eq $userTv.id.Trim('u') })
+            if (!$userGroupMember) {
+                Write-SyncLog "User '$($userTv.email)' will be added to user group '$($userGroup.name)'"
+                $membersToAdd += $userTv.id
+            }
+            else {
+                Write-SyncLog "User '$($userTv.email)' is already member of user group '$($userGroup.name)'. Skipping."
+                $statistics.NotChanged++
+            }
+        }
+        Write-SyncLog "Adding $($membersToAdd.Count) users to user group '$($userGroup.name)'"
+        if (!$configuration.TestRun -And $membersToAdd.Count -Gt 0) {
+            $membersToAdd | Split-Bulk -Size 100 | ForEach-Object {
+                $currentMembersToAdd = $_
+                try {
+                    (Add-TeamViewerUserGroupMember $configuration.ApiToken $userGroup.id $currentMembersToAdd) | Out-Null
+                    $statistics.AddedMembers += $currentMembersToAdd.Count
+                }
+                catch {
+                    Write-SyncLog "Failed to add members to user group '$($userGroup.name)': $_"
+                    $statistics.Failed += $currentMembersToAdd.Count
+                }
+            }
+        }
+        else { $statistics.AddedMembers += $membersToAdd.Count }
+
+        # Remove unknown members from the user group
+        $membersToRemove = @()
+        foreach ($userGroupMember in $userGroupMembers) {
+            $userTv = ($usersTv | Where-Object { $_.id.Trim('u') -Eq $userGroupMember.accountId })
+            if (!$userTv) {
+                Write-SyncLog "User '$($userGroupMember.name)' will be removed from user group '$($userGroup.name)'"
+                $membersToRemove += $userGroupMember.accountId
+            }
+        }
+        Write-SyncLog "Removing $($membersToRemove.Count) members from user group '$($userGroup.name)'"
+        if (!$configuration.TestRun -And $membersToRemove.Count -Gt 0) {
+            $membersToRemove | Split-Bulk -Size 100 | ForEach-Object {
+                $currentMembersToRemove = $_
+                try {
+                    (Remove-TeamViewerUserGroupMember $configuration.ApiToken $userGroup.id $currentMembersToRemove) | Out-Null
+                    $statistics.RemovedMembers += $currentMembersToRemove.Count
+                }
+                catch {
+                    Write-SyncLog "Failed to remove members from user group '$($userGroup.name)'"
+                    $statistics.Failed += $currentMembersToRemove.Count
+                }
+            }
+        }
+        else { $statistics.RemovedMembers += $membersToRemove.Count }
+    }
+
+    $stopwatch.Stop()
+    Write-SyncLog "Completed TeamViewer user group synchronization"
+
+    # Return some statistics
+    Write-Output @{
+        Activity   = 'SyncUserGroups'
         Statistics = $statistics
         Duration   = $stopwatch.Elapsed
     }
@@ -363,6 +488,9 @@ function Invoke-Sync($configuration, $progressHandler) {
     Invoke-SyncUser -syncContext $syncContext -configuration $configuration -progressHandler $progressHandler
     if ($configuration.EnableConditionalAccessSync) {
         Invoke-SyncConditionalAccess -syncContext $syncContext -configuration $configuration -progressHandler $progressHandler
+    }
+    if ($configuration.EnableUserGroupsSync) {
+        Invoke-SyncUserGroups -syncContext $syncContext -configuration $configuration -progressHandler $progressHandler
     }
 
     # We're done here
